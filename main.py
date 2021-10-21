@@ -15,23 +15,43 @@ def update_src():
 
 
 class Portfolio:
-    """Portfolio, information about the amount of each currency being holded.
+    """Portfolio, information about each asset being holded.
 
-    Parameters
+    Attributes
     ----------
-    name : str
-        Name of the CSV to read information from. Should be under `PORTFOLIOS_DIR`
-        directory.
-    quote_currencies : iterable
-        Currencies to weight portfolio value upon. A full list of supported currencies
-        can be founded on src/quotes.list
+    name: str
+        Name of the portfolio.
+    quote_currencies: iterable
+        Currencies on which information about assets value will be displayed.
+    assets_df: pd.DataFrame
+        DataFrame, rows are assets and contains two columns: `coin_id` (assets)
+        and `amount` (how much of each asset). Main portfolio dataframe.
+
+    self._cached_values_df: None, pd.DataFrame
+        Cached values for each asset (rows) on each of the quote currencies (columns).
+    self._cached_percentages_df: None, pd.DataFrame
+        Cached values for the percentage of the whole portfolio that each asset (rows)
+        occupies, according to each of the quote currencies (columns).
+    self._cached_prices_df: None, pd.DataFrame
+        Cached prices for each asset (rows) in each of the quote currencies.
     """
 
     def __init__(self, name: str, quote_currencies=('usd',)):
+        """Class constructor.
+        
+        Parameters
+        ----------
+        name : str
+            Name of the CSV to read information from. Should be under `PORTFOLIOS_DIR`
+            directory.
+        quote_currencies : iterable
+            Currencies to weight the portfolio assets value upon. A full list of
+            supported currencies can be founded on src/quotes.list.
+        """
         self.name = name
         self.quote_currencies = quote_currencies
 
-        self.df = pd.read_csv(f'{PORTFOLIOS_DIR}{name}.csv',
+        self.assets_df = pd.read_csv(f'{PORTFOLIOS_DIR}{name}.csv',
                               index_col=0)
 
         # values to be set
@@ -85,10 +105,8 @@ class Portfolio:
     def set_quote_currencies(self, quote_currencies):
         self.quote_currencies = quote_currencies
 
-    def get_sorted_amounts(self, quote, ascending=False):
-        quote_amounts_df = self.amounts_df[quote]
-        return quote_amounts_df.sort_values(
-        """Return dict containing how much each holding values, in `quote`.
+    def get_sorted_values(self, quote: str, ascending=False):
+        """Return dict containing how much each asset values, in `quote`.
 
         Parameters
         ----------
@@ -101,13 +119,13 @@ class Portfolio:
         Return
         ------
         dict
-            How much each holding values, in `quote`.
+            How much each asset values, in `quote`.
         """
             ascending=ascending
         ).to_dict()
 
     def get_sorted_percentages(self, quote, ascending=False):
-        """Return dict containing the percentage of the portfolio that each holding occupies.
+        """Return dict containing the percentage of the portfolio that each asset occupies.
 
         Parameters
         ----------
@@ -120,7 +138,7 @@ class Portfolio:
         Return
         ------
         dict
-            The percentage of each holding values, in `quote`.
+            The percentage of the portfolio that each asset occupies, in `quote`.
         """
         quote_percentages_df = self.percentages_df[quote]
         return quote_percentages_df.sort_values(
