@@ -55,14 +55,14 @@ class Portfolio:
                               index_col=0)
 
         # values to be set
-        self._cached_amounts_df = None
+        self._cached_values_df = None
         self._cached_percentages_df = None
         self._cached_prices_df = None
 
     def reset_cache(self):
-        self._cached_amounts_df = None
         """Reset cached values to `None`.
         """
+        self._cached_values_df = None
         self._cached_percentages_df = None
         self._cached_prices_df = None
 
@@ -70,7 +70,8 @@ class Portfolio:
         """Send request to CoinGecko and update price information. Resets the cache.
         """
         self.reset_cache()
-        portfolio_coins_str = ','.join(self.df.index)
+
+        portfolio_coins_str = ','.join(self.assets_df.index)
         quote_currencies_str = ','.join(self.quote_currencies)
 
         self._cached_prices_df = pd.DataFrame.from_dict(
@@ -84,17 +85,17 @@ class Portfolio:
             self.update_prices()
         return self._cached_prices_df
 
-    def _calculate_amounts(self):
-        self._cached_amounts_df = self.prices_df.loc[self.df.index] * self.df.values
+    def _calculate_values(self):
+        self._cached_values_df = self.prices_df.loc[self.assets_df.index] * self.assets_df.values
 
     def _calculate_percentages(self):
-        self._cached_percentages_df = self.amounts_df / self.amounts_df.sum() * 100
+        self._cached_percentages_df = self.values_df / self.values_df.sum() * 100
 
     @property
-    def amounts_df(self):
-        if self._cached_amounts_df is None:
-            self._calculate_amounts()
-        return self._cached_amounts_df
+    def values_df(self):
+        if self._cached_values_df is None:
+            self._calculate_values()
+        return self._cached_values_df
 
     @property
     def percentages_df(self):
@@ -121,6 +122,8 @@ class Portfolio:
         dict
             How much each asset values, in `quote`.
         """
+        quote_values_df = self.values_df[quote]
+        return quote_values_df.sort_values(
             ascending=ascending
         ).to_dict()
 
@@ -150,5 +153,5 @@ if __name__ == '__main__':
     update_src()
     p = Portfolio('example',
                   quote_currencies=['usd', 'eth', 'btc'])
-    print(p.amounts_df)
+    print(p.values_df)
     print(p.percentages_df)
