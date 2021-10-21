@@ -1,6 +1,6 @@
 import pandas as pd
 import json
-from constants import CG
+from constants import CG, PORTFOLIOS_DIR
 
 
 def update_src():
@@ -19,7 +19,7 @@ class Portfolio:
         self.name = name
         self.quote_currencies = quote_currencies
 
-        self.df = pd.read_csv(f'portfolios/{name}.csv',
+        self.df = pd.read_csv(f'{PORTFOLIOS_DIR}{name}.csv',
                               index_col=0)
 
         # values to be set
