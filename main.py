@@ -15,7 +15,19 @@ def update_src():
 
 
 class Portfolio:
-    def __init__(self, name, quote_currencies=('usd',)):
+    """Portfolio, information about the amount of each currency being holded.
+
+    Parameters
+    ----------
+    name : str
+        Name of the CSV to read information from. Should be under `PORTFOLIOS_DIR`
+        directory.
+    quote_currencies : iterable
+        Currencies to weight portfolio value upon. A full list of supported currencies
+        can be founded on src/quotes.list
+    """
+
+    def __init__(self, name: str, quote_currencies=('usd',)):
         self.name = name
         self.quote_currencies = quote_currencies
 
@@ -29,12 +41,15 @@ class Portfolio:
 
     def reset_cache(self):
         self._cached_amounts_df = None
+        """Reset cached values to `None`.
+        """
         self._cached_percentages_df = None
         self._cached_prices_df = None
 
     def update_prices(self):
+        """Send request to CoinGecko and update price information. Resets the cache.
+        """
         self.reset_cache()
-        # CoinGeckoAPI.get_price expects string of ids joined by comma
         portfolio_coins_str = ','.join(self.df.index)
         quote_currencies_str = ','.join(self.quote_currencies)
 
@@ -73,10 +88,40 @@ class Portfolio:
     def get_sorted_amounts(self, quote, ascending=False):
         quote_amounts_df = self.amounts_df[quote]
         return quote_amounts_df.sort_values(
+        """Return dict containing how much each holding values, in `quote`.
+
+        Parameters
+        ----------
+
+        quote: str
+            The currency to check the value upon. Must be one of `self.quote_currencies`
+        ascending: bool, optional
+            If the result should be in ascending order of value, instead of descending.
+
+        Return
+        ------
+        dict
+            How much each holding values, in `quote`.
+        """
             ascending=ascending
         ).to_dict()
 
     def get_sorted_percentages(self, quote, ascending=False):
+        """Return dict containing the percentage of the portfolio that each holding occupies.
+
+        Parameters
+        ----------
+
+        quote: str
+            The currency to check the value upon. Must be one of `self.quote_currencies`
+        ascending: bool, optional
+            If the result should be in ascending order of percentage, instead of descending.
+
+        Return
+        ------
+        dict
+            The percentage of each holding values, in `quote`.
+        """
         quote_percentages_df = self.percentages_df[quote]
         return quote_percentages_df.sort_values(
             ascending=ascending
