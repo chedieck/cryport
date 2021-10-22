@@ -1,6 +1,7 @@
 import pandas as pd
 import json
 from constants import CG, PORTFOLIOS_DIR
+pd.options.display.float_format = '{:.8f}'.format
 
 
 def update_src():
