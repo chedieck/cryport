@@ -22,22 +22,23 @@ class Portfolio:
     ----------
     name: str
         Name of the portfolio.
-    quote_currencies: iterable
-        Currencies on which information about assets value will be displayed.
-    assets_df: pd.DataFrame
-        DataFrame, rows are assets and contains two columns: `coin_id` (assets)
-        and `amount` (how much of each asset). Main portfolio dataframe.
+    quote: str
+        Currency on which information about assets value will be displayed.
+    assets: pd.Series
+        Series, how much of each asset is in the portfolio.
 
-    self._cached_values_df: None, pd.DataFrame
-        Cached values for each asset (rows) on each of the quote currencies (columns).
-    self._cached_percentages_df: None, pd.DataFrame
-        Cached values for the percentage of the whole portfolio that each asset (rows)
-        occupies, according to each of the quote currencies (columns).
-    self._cached_prices_df: None, pd.DataFrame
-        Cached prices for each asset (rows) in each of the quote currencies.
+    self._cached_values: None, pd.Series
+        How much each asset values on the `quote` currency.
+        Should be accessed through the `values` property.
+    self._cached_percentages: None, pd.Series
+        The percentage of the whole portfolio that each asset occupies.
+        Should be accessed through the `percentages` property.
+    self._cached_prices: None, pd.Series
+        The price of each asset in the `quote` currency.
+        Should be accessed through the `prices` property.
     """
 
-    def __init__(self, name: str, quote_currencies=('usd',)):
+    def __init__(self, name: str, quote='usd'):
         """Class constructor.
         
         Parameters
@@ -45,110 +46,110 @@ class Portfolio:
         name : str
             Name of the CSV to read information from. Should be under `PORTFOLIOS_DIR`
             directory.
-        quote_currencies : iterable
-            Currencies to weight the portfolio assets value upon. A full list of
-            supported currencies can be founded on src/quotes.list.
+        quote: str
+            Currency to weight the portfolio assets value upon.
+            A full list of supported currencies can be founded on `./src/quotes.list`.
         """
         self.name = name
-        self.quote_currencies = quote_currencies
+        self.quote = quote
 
-        self.assets_df = pd.read_csv(f'{PORTFOLIOS_DIR}{name}.csv',
-                              index_col=0)
+        self.assets = pd.read_csv(f'{PORTFOLIOS_DIR}{name}.csv',
+                              index_col=0).amount
+        self.assets.name = 'Assets'
 
         # values to be set
-        self._cached_values_df = None
-        self._cached_percentages_df = None
-        self._cached_prices_df = None
+        self._cached_values = None
+        self._cached_percentages = None
+        self._cached_prices = None
 
     def delete_cache(self):
         """Reset cached values to `None`.
         """
-        self._cached_values_df = None
-        self._cached_percentages_df = None
-        self._cached_prices_df = None
+        self._cached_values = None
+        self._cached_percentages = None
+        self._cached_prices = None
 
     def update_prices(self):
-        """Send request to CoinGecko and update price information. Resets the cache.
+        """Send request to CoinGecko and update price information. Deletes the cache.
         """
         self.delete_cache()
 
-        portfolio_coins_str = ','.join(self.assets_df.index)
-        quote_currencies_str = ','.join(self.quote_currencies)
+        portfolio_coins_str = ','.join(self.assets.index)
 
-        self._cached_prices_df = pd.DataFrame.from_dict(
+        self._cached_prices = pd.DataFrame.from_dict(
             CG.get_price(portfolio_coins_str,
-                         quote_currencies_str)
-        ).transpose()
+                         self.quote)
+        ).transpose()[self.quote]
+        self._cached_prices.name = 'Prices'
 
     @property
-    def prices_df(self):
-        if self._cached_prices_df is None:
+    def prices(self):
+        if self._cached_prices is None:
             self.update_prices()
-        return self._cached_prices_df
+        return self._cached_prices
 
     def _calculate_values(self):
-        self._cached_values_df = self.prices_df.loc[self.assets_df.index] * self.assets_df.values
+        self._cached_values = self.prices.loc[self.assets.index] * self.assets.values
+        self._cached_values.name = 'Values'
 
     def _calculate_percentages(self):
-        self._cached_percentages_df = self.values_df / self.values_df.sum() * 100
+        self._cached_percentages = self.values / self.values.sum() * 100
+        self._cached_percentages.name = 'Percentages'
 
     @property
-    def values_df(self):
-        if self._cached_values_df is None:
+    def values(self):
+        if self._cached_values is None:
             self._calculate_values()
-        return self._cached_values_df
+        return self._cached_values
 
     @property
-    def percentages_df(self):
-        if self._cached_percentages_df is None:
+    def percentages(self):
+        if self._cached_percentages is None:
             self._calculate_percentages()
-        return self._cached_percentages_df
+        return self._cached_percentages
 
-    def set_quote_currencies(self, quote_currencies):
-        self.quote_currencies = quote_currencies
+    def set_quote(self, quote):
+        """Change the portfolio quote.
+        """
+        self.delete_cache()
+        self.quote = quote
 
-    def get_totals(self):
-        return self.values_df.sum()
+    def get_total(self):
+        return self.values.sum()
 
-    def get_sorted_values(self, quote: str, ascending=False):
-        """Return dataframe containing how much each asset values, in `quote`.
+    def get_sorted_values(self, ascending=False):
+        """Sorted `self.values` series.
 
         Parameters
         ----------
 
-        quote: str
-            The currency to check the value upon. Must be one of `self.quote_currencies`
         ascending: bool, optional
             If the result should be in ascending order of value, instead of descending.
 
         Return
         ------
-        pd.DataFrame
+        pd.Series
             How much each asset values, in `quote`.
         """
-        quote_values_df = self.values_df[quote]
-        return quote_values_df.sort_values(
+        return self.values.sort_values(
             ascending=ascending
         )
 
-    def get_sorted_percentages(self, quote, ascending=False):
-        """Return dataframe containing the percentage of the portfolio that each asset occupies.
+    def get_sorted_percentages(self, ascending=False):
+        """Sorted `self.percentages` series.
 
         Parameters
         ----------
 
-        quote: str
-            The currency to check the value upon. Must be one of `self.quote_currencies`
         ascending: bool, optional
             If the result should be in ascending order of percentage, instead of descending.
 
         Return
         ------
-        pd.DataFrame
+        pd.Series
             The percentage of the portfolio that each asset occupies, in `quote`.
         """
-        quote_percentages_df = self.percentages_df[quote]
-        return quote_percentages_df.sort_values(
+        return self.percentages.sort_values(
             ascending=ascending
         )
 
@@ -156,6 +157,7 @@ class Portfolio:
 if __name__ == '__main__':
     update_src()
     p = Portfolio('example',
-                  quote_currencies=['usd', 'eth', 'btc'])
-    print(p.values_df)
-    print(p.percentages_df)
+                  quote='usd')
+
+    print(p.values)
+    print(p.percentages)
