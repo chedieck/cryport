@@ -1,6 +1,6 @@
 import pandas as pd
 import json
-from constants import CG, PORTFOLIOS_DIR
+from constants import CG, PORTFOLIOS_DIR, AlertType
 pd.options.display.float_format = '{:.8f}'.format
 
 
@@ -153,7 +153,105 @@ class Portfolio:
             ascending=ascending
         )
 
+class PortfolioMonitor(Portfolio):
+    """Monitor to verify if portfolio assets has met conditions.
 
+    Attributes
+    ----------
+
+    alerts : pd.DataFrame
+        DataFrame with alert conditions.
+    triggered_alerts : pd.DataFrame
+        Boolean DataFrame indicating whether or not alert conditions have been violated.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        none_list = [None] * len(self.assets)
+        aux_dict = {
+            f'{alert_type}_a': none_list for alert_type in AlertType.ALL
+        }
+        aux_dict.update({
+            f'{alert_type}_b': none_list for alert_type in AlertType.ALL
+        })
+        base_df = pd.DataFrame(
+            aux_dict,
+            index=self.assets.index
+        )
+
+        self.alerts = base_df.copy()
+        self.triggered_alerts = base_df.copy().fillna(value=False)
+
+    def add_alert(self, asset: str, alert_type: AlertType, boundary: tuple):
+        """Create an alert condition.
+
+        Parameters
+        ----------
+
+        asset: str
+            Name (`coin_id`) of the asset to create the condition on.
+        alert_type: AlertType
+            Type of the alert: price, value or percentage, see `AlertType`.
+        boundary: tuple (float, float)
+            The boundary (a, b) on which the asset price, value or percentage has to remain
+            before triggering the alert.
+            
+        """
+        self.alerts.at[asset, f'{alert_type}_a'] = boundary[0]
+        self.alerts.at[asset, f'{alert_type}_b'] = boundary[1]
+       
+    def _get_asset_state(self, asset, alert_type):
+        """Return the price, value or percentage of asset on portfolio
+
+        Parameters
+        ----------
+        asset: str
+            Name (`coin_id`) of the asset to get state.
+        alert_type: AlertType
+            State to get: value, price or percentage.
+            
+        """
+        match alert_type:
+            case AlertType.PRICE:
+                return self.prices.loc[asset]
+            case AlertType.PERCENTAGE:
+                return self.percentages.loc[asset]
+            case AlertType.VALUE:
+                return self.values.loc[asset]
+            case _:
+                raise ValueError("Invalid alert_type")
+
+    def _get_asset_boundary(self, asset, alert_type):
+        return (
+            self.alerts.loc[asset, f'{alert_type}_a'],
+            self.alerts.loc[asset, f'{alert_type}_b']
+        ) 
+
+    def update_triggered_alerts(self):
+        """Trigger alerts that had their conditions met.
+
+        If an alert condition, defined on `self.alerts` has been met,
+        updates the same cell on `self.triggered_alerts` to True.
+        """
+        def trigger_asset_alerts(row):
+            asset = row.name
+            for alert_type in AlertType.ALL:
+                state = self._get_asset_state(asset, alert_type)
+                boundary = self._get_asset_boundary(asset, alert_type)
+                match boundary:
+                    case (None, None):
+                        continue
+                    case (None, b):
+                        self.triggered_alerts.loc[asset, f'{alert_type}_b'] = b < state
+                    case (a, None):
+                        self.triggered_alerts.at[asset, f'{alert_type}_a'] = state < a
+                    case (a, b):
+                        self.triggered_alerts.at[asset, f'{alert_type}_a'] = state < a
+                        self.triggered_alerts.at[asset, f'{alert_type}_b'] = b < state
+                    case _:
+                        raise ValueError("Invalid boundary")
+        self.alerts.apply(trigger_asset_alerts,
+                          axis=1)
 if __name__ == '__main__':
     update_src()
     p = Portfolio('example',
