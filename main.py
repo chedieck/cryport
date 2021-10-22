@@ -107,7 +107,7 @@ class Portfolio:
         self.quote_currencies = quote_currencies
 
     def get_sorted_values(self, quote: str, ascending=False):
-        """Return dict containing how much each asset values, in `quote`.
+        """Return dataframe containing how much each asset values, in `quote`.
 
         Parameters
         ----------
@@ -119,16 +119,16 @@ class Portfolio:
 
         Return
         ------
-        dict
+        pd.DataFrame
             How much each asset values, in `quote`.
         """
         quote_values_df = self.values_df[quote]
         return quote_values_df.sort_values(
             ascending=ascending
-        ).to_dict()
+        )
 
     def get_sorted_percentages(self, quote, ascending=False):
-        """Return dict containing the percentage of the portfolio that each asset occupies.
+        """Return dataframe containing the percentage of the portfolio that each asset occupies.
 
         Parameters
         ----------
@@ -140,13 +140,13 @@ class Portfolio:
 
         Return
         ------
-        dict
+        pd.DataFrame
             The percentage of the portfolio that each asset occupies, in `quote`.
         """
         quote_percentages_df = self.percentages_df[quote]
         return quote_percentages_df.sort_values(
             ascending=ascending
-        ).to_dict()
+        )
 
 
 if __name__ == '__main__':
