@@ -106,6 +106,9 @@ class Portfolio:
     def set_quote_currencies(self, quote_currencies):
         self.quote_currencies = quote_currencies
 
+    def get_totals(self):
+        return self.values_df.sum()
+
     def get_sorted_values(self, quote: str, ascending=False):
         """Return dataframe containing how much each asset values, in `quote`.
 
