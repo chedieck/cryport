@@ -59,7 +59,7 @@ class Portfolio:
         self._cached_percentages_df = None
         self._cached_prices_df = None
 
-    def reset_cache(self):
+    def delete_cache(self):
         """Reset cached values to `None`.
         """
         self._cached_values_df = None
@@ -69,7 +69,7 @@ class Portfolio:
     def update_prices(self):
         """Send request to CoinGecko and update price information. Resets the cache.
         """
-        self.reset_cache()
+        self.delete_cache()
 
         portfolio_coins_str = ','.join(self.assets_df.index)
         quote_currencies_str = ','.join(self.quote_currencies)
