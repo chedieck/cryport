@@ -3,6 +3,8 @@ import json
 from constants import CG, PORTFOLIOS_DIR, PortfolioInfoType
 from constants import Date
 pd.options.display.float_format = '{:.8f}'.format
+from termcolor import colored
+
 
 
 def update_src():
@@ -230,11 +232,41 @@ class PortfolioMonitor(Portfolio):
         self.alerts.apply(trigger_asset_alerts,
                           axis=1)
 
+    def _render_alert_string(self, asset, info_type, violated_side):
+        violated_value = self._get_asset_boundary(asset, info_type)[violated_side]
+        state = self._get_asset_state(asset, info_type)
+        match violated_side:
+            case 0:
+                condition_str = colored(f'{state} < {violated_value}', 'red')
+            case 1:
+                condition_str = colored(f'{state} > {violated_value}', 'red')
+
+        return f'{asset.upper():<20} alert {info_type} boundary: current {info_type} {condition_str}.'
+
+    def __str__(self):
+        def show_asset_triggered_alerts(row):
+            display = ''
+            asset = row.name
+            for info_type in PortfolioInfoType.ALL:
+                if self.triggered_alerts.loc[asset, f'{info_type}_a']:
+                    display += self._render_alert_string(asset, info_type, 0) + '\n'
+                if self.triggered_alerts.loc[asset, f'{info_type}_b']:
+                    display += self._render_alert_string(asset, info_type, 1) + '\n'
+
+        self.triggered_alerts.apply(show_asset_triggered_alerts,
+                                    axis=1)
+
+
+
 if __name__ == '__main__':
     update_src()
-    p = Portfolio('example',
-                  quote='usd')
+    p = PortfolioMonitor('main',
+                         quote='usd')
+
     p.add_alert('chainlink', PortfolioInfoType.PRICE, (26, 30))
     # p.add_alert('chainlink', PortfolioInfoType.PERCENTAGE, (None, 50))
+    # p.add_alert('ark', PortfolioInfoType.PERCENTAGE, (10, None))
+    # p.add_alert('render-token', PortfolioInfoType.VALUE, (10, 1000))
+
     p.update_triggered_alerts()
 

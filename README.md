@@ -11,4 +11,4 @@ The CSV must have the header indicating the two columns: `coin_id, amount`. The 
 
  BNB, for example, has `binance-coin` as the end of the website URL: [https://www.coingecko.com/pt/moedas/binance-coin](https://www.coingecko.com/pt/moedas/binance-coin), but it's `coin_id` is actually `binancecoin`. For that reason, you might want to check [CoinGecko Token API List](https://docs.google.com/spreadsheets/d/1wTTuxXt8n9q7C4NDXqQpI3wpKu1_5bGVmP9Xz0XGSyU/edit#gid=0) on google sheets. A dictionary with this information is also available on the repository, under [src/coins.list](https://github.com/chedieck/cryport/blob/master/src/coins.list).
 
-Running `main.py` directly provides the user with an example of the software current functionality.
+Running `core.py` directly provides the user with an example of the software current functionality.
