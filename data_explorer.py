@@ -50,6 +50,18 @@ def get_coins_info(coin_id_list):
     return return_dict
 
 class HistoricalPortfolio(Portfolio):
+    """Portfolio containing historical data for the assets.
+
+    Attributes
+    ----------
+
+    days : pd.DataFrame
+        DataFrame with alert conditions.
+    _cached_first_prices : pd.Series
+        Series with the first prices for each portfolio asset (prices `self.days` ago)
+    _cached_price_normalized_evolution : pd.DataFrame
+        Dataframe with the normalized price evolution of each asset (always starts at 1).
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -60,11 +72,11 @@ class HistoricalPortfolio(Portfolio):
     def update_history(self, days=30):
         """Get historical data of each portfolio asset.
 
-        Does not support custom granularity, as this is the CoinGecko API behavior. Granularity
-        is determined automatic, as mentioned by CoinGecko API docs:
-            days = 1 ----------> 5 minute interval data
-            1 < days <= days --> hourly data
-            days > 90 ---------> daily data (00:00 UTC)
+        Does not support custom granularity, as this is the CoinGecko API behavior.
+        Granularity is determined automatic, as mentioned by CoinGecko API docs:
+            days = 1         => 5 minute interval data
+            1 < days <= days => hourly data
+            days > 90        => daily data (00:00 UTC)
         """
         self.days = days
         results_dict = {}
@@ -93,7 +105,6 @@ class HistoricalPortfolio(Portfolio):
                                                    window_size=window_size).dropna()
         self._cached_first_prices = pd.Series(first_values_dict)
         self._cached_price_normalized_evolution = performance_df
-        return performance_df, pd.Series(first_values_dict)
 
     @property
     def historical_normalized_prices(self):
@@ -117,18 +128,20 @@ class HistoricalPortfolio(Portfolio):
     def historical_totals(self):
         return self.historical_values.sum(axis=1)
 
+    @property
+    def _markevery(self):
+        return len(self.historical_normalized_prices) // 16
+
     def plot_price_evolution(self):
-        markevery = len(self.historical_normalized_prices) // 16
-        self.historical_normalized_prices.plot(style=STYLE,
-                                             markevery=markevery)
+        self.historical_prices.plot(style=STYLE,
+                                    markevery=self.markevery)
         plt.title(f'Price evolution of portfolio assets on the last {self.days} days.')
         plt.axhline(y=1, color='black', linestyle='--', label='CONSTANT')
         plt.show()
 
     def plot_percentages_evolution(self):
-        markevery = len(self.historical_normalized_prices) // 16
         self.historical_percentages.plot(style=STYLE,
-                                       markevery=markevery)
+                                       markevery=self.markevery)
         plt.title(f'(% of portfolio) evolution of assets on the last {self.days} days.')
         plt.show()
 
