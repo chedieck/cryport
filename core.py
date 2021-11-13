@@ -58,6 +58,12 @@ class Portfolio:
         # values to be set
         self._cached_prices = None
 
+    def __str__(self):
+        return f'{self.name} ${self.quote}'
+
+    def __repr__(self):
+        return self.__str__()
+
     def delete_cache(self):
         """Reset cached values to `None`.
         """
