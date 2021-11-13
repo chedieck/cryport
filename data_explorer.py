@@ -161,7 +161,7 @@ class HistoricalPortfolio(Portfolio):
 
 
 if __name__ == '__main__':
-    p = HistoricalPortfolio('main',
+    p = HistoricalPortfolio('example',
                             quote='usd')
 
     p.update_history(days=365)
