@@ -18,6 +18,17 @@ class PortfolioInfoType:
 
     ALL = [VALUE, PERCENTAGE, PRICE]
 
+class ConditionType:
+    VALUE_MIN = PortfolioInfoType.VALUE + '_min'
+    PERCENTAGE_MIN = PortfolioInfoType.PERCENTAGE + '_min'
+    PRICE_MIN = PortfolioInfoType.PRICE + '_min'
+
+    VALUE_MAX = PortfolioInfoType.VALUE + '_max'
+    PERCENTAGE_MAX = PortfolioInfoType.PERCENTAGE + '_max'
+    PRICE_MAX = PortfolioInfoType.PRICE + '_max'
+
+    ALL = [VALUE_MAX, PERCENTAGE_MAX, PRICE_MAX, VALUE_MIN, PERCENTAGE_MIN, PRICE_MIN]
+
 class TradeAction:
     SELL = 'SELL'
     BUY = 'BUY'

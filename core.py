@@ -1,9 +1,10 @@
 import pandas as pd
 import json
 from constants import CG, PORTFOLIOS_DIR, PortfolioInfoType
-from constants import Date
+from constants import ConditionType
 pd.options.display.float_format = '{:.8f}'.format
 from termcolor import colored
+from dataclasses import dataclass
 
 
 
@@ -123,6 +124,16 @@ class Portfolio:
         """
         pass
 
+@dataclass
+class AssetCondition:
+    asset: str
+    condition: ConditionType
+    value: int = None
+
+    def __str__(self):
+        value_str = f': {self.value}' if self.value is not None else ''
+        return f'{self.asset}-{self.condition}{value_str}'
+
 
 class PortfolioMonitor(Portfolio):
     """Monitor to verify if portfolio assets has met conditions.
@@ -130,46 +141,41 @@ class PortfolioMonitor(Portfolio):
     Attributes
     ----------
 
-    alerts : pd.DataFrame
-        DataFrame with alert conditions.
-    triggered_alerts : pd.DataFrame
-        Boolean DataFrame indicating whether or not alert conditions have been violated.
+    conditions : pd.DataFrame
+        DataFrame with conditions.
+    triggered_conditions : pd.DataFrame
+        Boolean DataFrame indicating whether or not conditions have been violated.
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         none_list = [None] * len(self.assets)
         aux_dict = {
-            f'{info_type}_a': none_list for info_type in PortfolioInfoType.ALL
+            condition_type: none_list for condition_type in ConditionType.ALL
         }
-        aux_dict.update({
-            f'{info_type}_b': none_list for info_type in PortfolioInfoType.ALL
-        })
         base_df = pd.DataFrame(
             aux_dict,
             index=self.assets.index
         )
 
-        self.alerts = base_df.copy()
-        self.triggered_alerts = base_df.copy().fillna(value=False)
+        self.conditions = base_df.copy()
+        self.triggered_conditions = base_df.copy().fillna(value=False)
 
-    def add_alert(self, asset: str, info_type: PortfolioInfoType, boundary: tuple):
-        """Create an alert condition.
+    def add_condition(self, asset_condition: str, boundary: tuple):
+        """Create an condition on an asset.
 
         Parameters
         ----------
 
-        asset: str
-            Name (`coin_id`) of the asset to create the condition on.
-        info_type: PortfolioInfoType
-            Type of the alert: price, value or percentage, see `PortfolioInfoType`.
+        asset_condition: AssetCondition
+            AssetCondition, with the `coin_id` asset and the condition to create.
         boundary: tuple (float, float)
             The boundary (a, b) on which the asset price, value or percentage has to remain
-            before triggering the alert.
+            before triggering the condition.
             
         """
-        self.alerts.at[asset, f'{info_type}_a'] = boundary[0]
-        self.alerts.at[asset, f'{info_type}_b'] = boundary[1]
+        self.conditions.at[asset, f'{info_type}_min'] = boundary[0]
+        self.conditions.at[asset, f'{info_type}_max'] = boundary[1]
        
     def _get_asset_state(self, asset, info_type):
         """Return the price, value or percentage of asset on portfolio
@@ -191,6 +197,26 @@ class PortfolioMonitor(Portfolio):
             case _:
                 raise ValueError("Invalid info_type")
 
+    @property
+    def active_conditions(self):
+        conditions = dict()
+        for asset in self.assets.index:
+            for condition_type in ConditionType.ALL:
+                if (condition_value := self.conditions.loc[asset, condition_type]):
+                    conditions[str(AssetCondition(asset, condition_type))] = condition_value
+
+        return conditions
+
+    @property
+    def violated_asset_conditions(self):
+        conditions = []
+        for asset in self.assets.index:
+            for condition_type in ConditionType.ALL:
+                if self.triggered_conditions.loc[asset, condition_type]:
+                    conditions.append(AssetCondition(asset, condition_type))
+        return conditions
+
+
     def _get_asset_boundary(self, asset, info_type):
         """Return the condition boundary of the asset.
 
@@ -202,17 +228,17 @@ class PortfolioMonitor(Portfolio):
             Boundary to get: value, price or percentage.
         """
         return (
-            self.alerts.loc[asset, f'{info_type}_a'],
-            self.alerts.loc[asset, f'{info_type}_b']
+            self.conditions.loc[asset, f'{info_type}_min'],
+            self.conditions.loc[asset, f'{info_type}_max']
         ) 
 
-    def update_triggered_alerts(self):
-        """Trigger alerts that had their conditions met.
+    def update_triggered_conditions(self):
+        """Trigger conditions that had their conditions met.
 
-        If an alert condition, defined on `self.alerts` has been met,
-        updates the same cell on `self.triggered_alerts` to True.
+        If a condition, defined on `self.conditions` has been met,
+        updates the same cell on `self.triggered_conditions` to True.
         """
-        def trigger_asset_alerts(row):
+        def trigger_asset_conditions(row):
             asset = row.name
             for info_type in PortfolioInfoType.ALL:
                 state = self._get_asset_state(asset, info_type)
@@ -221,18 +247,18 @@ class PortfolioMonitor(Portfolio):
                     case (None, None):
                         continue
                     case (None, b):
-                        self.triggered_alerts.loc[asset, f'{info_type}_b'] = b < state
+                        self.triggered_conditions.loc[asset, f'{info_type}_max'] = b < state
                     case (a, None):
-                        self.triggered_alerts.at[asset, f'{info_type}_a'] = state < a
+                        self.triggered_conditions.at[asset, f'{info_type}_min'] = state < a
                     case (a, b):
-                        self.triggered_alerts.at[asset, f'{info_type}_a'] = state < a
-                        self.triggered_alerts.at[asset, f'{info_type}_b'] = b < state
+                        self.triggered_conditions.at[asset, f'{info_type}_min'] = state < a
+                        self.triggered_conditions.at[asset, f'{info_type}_max'] = b < state
                     case _:
                         raise ValueError("Invalid boundary")
-        self.alerts.apply(trigger_asset_alerts,
+        self.conditions.apply(trigger_asset_conditions,
                           axis=1)
 
-    def _render_alert_string(self, asset, info_type, violated_side):
+    def _render_condition_string(self, asset, info_type, violated_side):
         violated_value = self._get_asset_boundary(asset, info_type)[violated_side]
         state = self._get_asset_state(asset, info_type)
         match violated_side:
@@ -241,32 +267,28 @@ class PortfolioMonitor(Portfolio):
             case 1:
                 condition_str = colored(f'{state} > {violated_value}', 'red')
 
-        return f'{asset.upper():<20} alert {info_type} boundary: current {info_type} {condition_str}.'
+        return f'{asset.upper():<20} condition {info_type} boundary: current {info_type} {condition_str}.'
 
     def __str__(self):
-        def show_asset_triggered_alerts(row):
-            display = ''
+        display = ''
+        def show_asset_triggered_conditions(row):
             asset = row.name
             for info_type in PortfolioInfoType.ALL:
-                if self.triggered_alerts.loc[asset, f'{info_type}_a']:
-                    display += self._render_alert_string(asset, info_type, 0) + '\n'
-                if self.triggered_alerts.loc[asset, f'{info_type}_b']:
-                    display += self._render_alert_string(asset, info_type, 1) + '\n'
+                if self.triggered_conditions.loc[asset, f'{info_type}_min']:
+                    display += self._render_condition_string(asset, info_type, 0) + '\n'
+                if self.triggered_conditions.loc[asset, f'{info_type}_max']:
+                    display += self._render_condition_string(asset, info_type, 1) + '\n'
 
-        self.triggered_alerts.apply(show_asset_triggered_alerts,
+        self.triggered_conditions.apply(show_asset_triggered_conditions,
                                     axis=1)
+        return display
 
 
 
 if __name__ == '__main__':
-    update_src()
-    p = PortfolioMonitor('main',
-                         quote='usd')
+    p.add_condition('chainlink', PortfolioInfoType.PRICE, (26, 30))
+    # p.add_condition('chainlink', PortfolioInfoType.PERCENTAGE, (None, 50))
+    # p.add_condition('ark', PortfolioInfoType.PERCENTAGE, (10, None))
+    # p.add_condition('render-token', PortfolioInfoType.VALUE, (10, 1000))
 
-    p.add_alert('chainlink', PortfolioInfoType.PRICE, (26, 30))
-    # p.add_alert('chainlink', PortfolioInfoType.PERCENTAGE, (None, 50))
-    # p.add_alert('ark', PortfolioInfoType.PERCENTAGE, (10, None))
-    # p.add_alert('render-token', PortfolioInfoType.VALUE, (10, 1000))
-
-    p.update_triggered_alerts()
-
+    p.update_triggered_conditions()
