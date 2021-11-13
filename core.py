@@ -123,19 +123,6 @@ class Portfolio:
     def total(self):
         return self.values.sum()
 
-    def get_historic_percentages(self,
-                                 quote: str,
-                                 start=Date.ONE_MONTH_AGO,
-                                 end=Date.NOW):
-        """Return Dataframe containing the historic percentages of the portfolio each asset would occupy
-
-        Does not support custom granularity, as this is the CoinGecko API behavior. Granularity
-        is determined automatic, as mentioned by CoinGecko API docs:
-            1 day from query time = 5 minute interval data
-            1 - 90 days from query time = hourly data
-            above 90 days from query time = daily data (00:00 UTC)
-        """
-        pass
 
 @dataclass
 class AssetCondition:
