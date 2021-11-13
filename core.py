@@ -5,6 +5,7 @@ from constants import ConditionType
 pd.options.display.float_format = '{:.8f}'.format
 from termcolor import colored
 from dataclasses import dataclass
+from typing import List
 
 
 
@@ -52,7 +53,7 @@ class Portfolio:
         self.quote = quote
 
         self.assets = pd.read_csv(f'{PORTFOLIOS_DIR}{name}.csv',
-                              index_col=0).amount
+                                  index_col=0).amount
         self.assets.name = 'Assets'
 
         # values to be set
@@ -128,11 +129,21 @@ class Portfolio:
 class AssetCondition:
     asset: str
     condition: ConditionType
-    value: int = None
+    value: float = None
 
     def __str__(self):
         value_str = f': {self.value}' if self.value is not None else ''
         return f'{self.asset}-{self.condition}{value_str}'
+
+    def get_info_type(self):
+        """0 if lower boundary, 1 if upper.
+        """
+        return self.condition.rsplit('_')[0]
+
+    def get_side(self):
+        """0 if lower boundary, 1 if upper.
+        """
+        return self.condition.rsplit('_')[-1]
 
 
 class PortfolioMonitor(Portfolio):
@@ -161,7 +172,7 @@ class PortfolioMonitor(Portfolio):
         self.conditions = base_df.copy()
         self.triggered_conditions = base_df.copy().fillna(value=False)
 
-    def add_condition(self, asset_condition: str, boundary: tuple):
+    def add_condition_list(self, asset_condition_list: List[AssetCondition]):
         """Create an condition on an asset.
 
         Parameters
@@ -169,13 +180,10 @@ class PortfolioMonitor(Portfolio):
 
         asset_condition: AssetCondition
             AssetCondition, with the `coin_id` asset and the condition to create.
-        boundary: tuple (float, float)
-            The boundary (a, b) on which the asset price, value or percentage has to remain
-            before triggering the condition.
-            
         """
-        self.conditions.at[asset, f'{info_type}_min'] = boundary[0]
-        self.conditions.at[asset, f'{info_type}_max'] = boundary[1]
+        for asset_condition in asset_condition_list:
+            self.conditions.at[asset_condition.asset,
+                               asset_condition.condition] = asset_condition.value
        
     def _get_asset_state(self, asset, info_type):
         """Return the price, value or percentage of asset on portfolio
@@ -199,23 +207,23 @@ class PortfolioMonitor(Portfolio):
 
     @property
     def active_conditions(self):
-        conditions = dict()
-        for asset in self.assets.index:
-            for condition_type in ConditionType.ALL:
-                if (condition_value := self.conditions.loc[asset, condition_type]):
-                    conditions[str(AssetCondition(asset, condition_type))] = condition_value
-
-        return conditions
+        return_list = []
+        for (asset, condition), value in zip(self.conditions.stack().index,
+                                             self.conditions.stack().values):
+            return_list.append(
+                AssetCondition(asset=asset,condition=condition, value=value)
+            )
+        return return_list
 
     @property
-    def violated_asset_conditions(self):
-        conditions = []
-        for asset in self.assets.index:
-            for condition_type in ConditionType.ALL:
-                if self.triggered_conditions.loc[asset, condition_type]:
-                    conditions.append(AssetCondition(asset, condition_type))
-        return conditions
-
+    def triggered_active_conditions(self):
+        return_list = []
+        for (asset, condition), value in zip(self.conditions[self.triggered_conditions].stack().index,
+                                             self.conditions[self.triggered_conditions].stack().values):
+            return_list.append(
+                AssetCondition(asset=asset,condition=condition, value=value)
+            )
+        return return_list
 
     def _get_asset_boundary(self, asset, info_type):
         """Return the condition boundary of the asset.
@@ -238,57 +246,44 @@ class PortfolioMonitor(Portfolio):
         If a condition, defined on `self.conditions` has been met,
         updates the same cell on `self.triggered_conditions` to True.
         """
-        def trigger_asset_conditions(row):
-            asset = row.name
-            for info_type in PortfolioInfoType.ALL:
-                state = self._get_asset_state(asset, info_type)
-                boundary = self._get_asset_boundary(asset, info_type)
-                match boundary:
-                    case (None, None):
-                        continue
-                    case (None, b):
-                        self.triggered_conditions.loc[asset, f'{info_type}_max'] = b < state
-                    case (a, None):
-                        self.triggered_conditions.at[asset, f'{info_type}_min'] = state < a
-                    case (a, b):
-                        self.triggered_conditions.at[asset, f'{info_type}_min'] = state < a
-                        self.triggered_conditions.at[asset, f'{info_type}_max'] = b < state
-                    case _:
-                        raise ValueError("Invalid boundary")
-        self.conditions.apply(trigger_asset_conditions,
-                          axis=1)
+        for ac in self.active_conditions:
+            side = ac.get_side()
+            state = self._get_asset_state(ac.asset, ac.get_info_type())
+            match side:
+                case 'min':
+                    self.triggered_conditions.at[ac.asset, ac.condition] = state < ac.value
+                case 'max':
+                    self.triggered_conditions.at[ac.asset, ac.condition] = ac.value < state
 
-    def _render_condition_string(self, asset, info_type, violated_side):
-        violated_value = self._get_asset_boundary(asset, info_type)[violated_side]
-        state = self._get_asset_state(asset, info_type)
-        match violated_side:
-            case 0:
-                condition_str = colored(f'{state} < {violated_value}', 'red')
-            case 1:
-                condition_str = colored(f'{state} > {violated_value}', 'red')
+    def _render_triggered_condition_string(self, asset_condition):
+        state = self._get_asset_state(asset_condition.asset, asset_condition.get_info_type())
+        side = asset_condition.get_side()
+        match side:
+            case 'min':
+                condition_str = colored(f'{state:<20f} < {asset_condition.value:>20f}', 'red')
+            case 'max':
+                condition_str = colored(f'{state:<20f} > {asset_condition.value:>20f}', 'red')
 
-        return f'{asset.upper():<20} condition {info_type} boundary: current {info_type} {condition_str}.'
+        return f'{asset_condition.asset.upper():<20} {asset_condition.condition:<20} {condition_str}'
 
     def __str__(self):
-        display = ''
-        def show_asset_triggered_conditions(row):
-            asset = row.name
-            for info_type in PortfolioInfoType.ALL:
-                if self.triggered_conditions.loc[asset, f'{info_type}_min']:
-                    display += self._render_condition_string(asset, info_type, 0) + '\n'
-                if self.triggered_conditions.loc[asset, f'{info_type}_max']:
-                    display += self._render_condition_string(asset, info_type, 1) + '\n'
-
-        self.triggered_conditions.apply(show_asset_triggered_conditions,
-                                    axis=1)
+        display = super().__str__()
+        for ac in self.triggered_active_conditions:
+            display += '\n' + self._render_triggered_condition_string(ac)
         return display
 
 
 
 if __name__ == '__main__':
-    p.add_condition('chainlink', PortfolioInfoType.PRICE, (26, 30))
-    # p.add_condition('chainlink', PortfolioInfoType.PERCENTAGE, (None, 50))
-    # p.add_condition('ark', PortfolioInfoType.PERCENTAGE, (10, None))
-    # p.add_condition('render-token', PortfolioInfoType.VALUE, (10, 1000))
+    p = PortfolioMonitor('example',
+                         quote='usd')
+    # will alert if:
+    p.add_condition_list([
+        AssetCondition(asset='chainlink', condition=ConditionType.VALUE_MAX, value=6000),  # total link value on portfolio > 6000 USD
+        AssetCondition(asset='hathor', condition=ConditionType.PERCENTAGE_MAX, value=0.1),  # hathor occupies > 10% of portfolio
+        AssetCondition(asset='bitcoin', condition=ConditionType.PRICE_MAX, value=70000),  # bitcoin price > 70000 USD
+        AssetCondition(asset='bitcoin', condition=ConditionType.PRICE_MIN, value=60000),  # bitcoin price < 60000 USD
+    ])
 
     p.update_triggered_conditions()
+    print(p)
