@@ -69,18 +69,25 @@ class Portfolio:
         """
         self._cached_prices = None
 
-    def update_prices(self):
+    def update_prices(self, prices_df=None, show=False):
         """Send request to CoinGecko and update price information. Deletes the cache.
+
+        If `prices_df` is passed, use it instead to set as the prices.
         """
         self.delete_cache()
 
-        portfolio_coins_str = ','.join(self.assets.index)
+        if prices_df is not None:
+            self._cached_prices = prices_df
+        else:
+            portfolio_coins_str = ','.join(self.assets.index)
 
-        self._cached_prices = pd.DataFrame.from_dict(
-            CG.get_price(portfolio_coins_str,
-                         self.quote)
-        ).transpose()[self.quote]
+            self._cached_prices = pd.DataFrame.from_dict(
+                CG.get_price(portfolio_coins_str,
+                             self.quote)
+            ).transpose()[self.quote]
         self._cached_prices.name = 'Prices'
+        if show:
+            print(self.prices)
 
     @property
     def prices(self):
