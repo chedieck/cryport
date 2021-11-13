@@ -1,17 +1,17 @@
 from constants import CG
 import json
-from core import Portfolio, PortfolioMonitor
+from core import Portfolio, PortfolioMonitor, AssetCondition
 import matplotlib.pyplot as plt
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import pandas as pd
-from constants import STYLE, TradeAction
+from constants import STYLE, TradeAction, PortfolioInfoType, ConditionType
 from typing import Callable
 import random
 import numpy as np
 
 
-def create_windowed_dataframe(results_dict, window_size=relativedelta(hours=1)):
+def create_windowed_dataframe(results_dict, window_size):
     oldest_date = min([v[0][0] for v in results_dict.values()])
     start = datetime.fromtimestamp(oldest_date / 1000)
     new_df = pd.DataFrame(columns=set(results_dict.keys()) | {'date'})
@@ -40,14 +40,16 @@ class CoinInfo:
     def __init__(self, raw_response):
         self.raw_response = raw_response
 
+
 def get_coins_info(coin_id_list):
     # update list of coins
     return_dict = dict()
     for coin in coin_id_list:
         coin_info = CoinInfo(CG.get_coin_by_id(coin))
         return_dict[coin] = coin_info
-    
+
     return return_dict
+
 
 class HistoricalPortfolio(Portfolio):
     """Portfolio containing historical data for the assets.
@@ -88,7 +90,7 @@ class HistoricalPortfolio(Portfolio):
             first_value = historical_data['prices'][0][1]  # used to normalize data
             first_values_dict[coin_id] = first_value
             results_dict[coin_id] = list(map(
-                lambda xy: (xy[0], xy[1]/first_value),
+                lambda xy: (xy[0], xy[1] / first_value),
                 historical_data['prices']
             ))
 
@@ -132,79 +134,117 @@ class HistoricalPortfolio(Portfolio):
     def _markevery(self):
         return len(self.historical_normalized_prices) // 16
 
-    def plot_price_evolution(self):
-        self.historical_prices.plot(style=STYLE,
-                                    markevery=self.markevery)
+    def plot_price_evolution(self, normalized=True, show=True):
+        if normalized:
+            self.historical_normalized_prices.plot(style=STYLE,
+                                                   markevery=self._markevery)
+        else:
+            self.historical_prices.plot(style=STYLE,
+                                        markevery=self._markevery)
         plt.title(f'Price evolution of portfolio assets on the last {self.days} days.')
         plt.axhline(y=1, color='black', linestyle='--', label='CONSTANT')
-        plt.show()
+        if show:
+            plt.show()
 
-    def plot_percentages_evolution(self):
+    def plot_percentages_evolution(self, show=True):
         self.historical_percentages.plot(style=STYLE,
-                                       markevery=self.markevery)
+                                       markevery=self._markevery)
         plt.title(f'(% of portfolio) evolution of assets on the last {self.days} days.')
-        plt.show()
+        if show:
+            plt.show()
 
-    def plot_total_evolution(self):
+    def plot_total_evolution(self, show=True):
         self.historical_totals.plot()
         plt.title(f'Total value of portfolio (in {self.quote.upper()}) evolution on the last {self.days} days.')
-        plt.show()
+        if show:
+            plt.show()
 
 
 class BackTestStrategyMixin():
-    def _decorator(foo):
-        def magic(self, *args, **kwargs) :
-            strategy_result = foo(self, *args, **kwargs)
+    def validate(strategy):
+        def wrapper(self, *args, **kwargs) :
+            total = self.total
+
+            strategy_result = strategy(self, *args, **kwargs)
+            assert self.total <= total, f"{self.total} > {total}"
             match strategy_result:
                 case TradeAction.BUY:
-                    print('buy link')
+                    pass
                 case TradeAction.SELL:
-                    print('sell link')
-        return magic
+                    pass
+            return strategy_result
+        return wrapper
 
-    def hodl_strategy(self, assets, percentages, values, prices, loop_counter):
-        if loop_counter == 0:
-            print('hodl buy link')
-            new_total = values.sum() * 0.999  # 0.1% fee
-            assets.chainlink = new_total / prices.chainlink
-            assets.bitcoin = 0
-            action = TradeAction.BUY
+    def default_strategy(self, loop_counter):
+        new_total = self.total * 0.999  # 0.1% fee
+        boundary_delta = (self.alerts[ConditionType.PERCENTAGE_MAX].chainlink
+                          - self.alerts[ConditionType.PERCENTAGE_MIN].chainlink)
+        random_middle = random.random() * boundary_delta
+        target = random_middle + self.alerts[ConditionType.PERCENTAGE_MIN].chainlink / self.alerts[ConditionType.PERCENTAGE_MAX].chainlink
 
-    def default_strategy(self, assets, percentages, values, prices, loop_counter):
         action = None
-        new_total = values.sum() * 0.999  # 0.1% fee
+        for asset_condition in self.violated_asset_conditions:
+            match asset_condition:
+                case AssetCondition(asset='chainlink', condition=ConditionType.PERCENTAGE_MIN):
+                    self.assets.chainlink = new_total * target / self.prices.chainlink
+                    self.assets.bitcoin = new_total * (1 - target) / self.prices.bitcoin
+                    action = TradeAction.BUY
+                case AssetCondition(asset='chainlink', condition=ConditionType.PERCENTAGE_MAX):
+                    self.assets.chainlink = new_total * target / self.prices.chainlink
+                    self.assets.bitcoin = new_total * (1 - target) / self.prices.bitcoin
+                    action = TradeAction.SELL
+        return action
+
+    @property
+    def template_strategy_index(self):
+        multiindex_tuples = []
+        for condition in self.triggered_alerts.columns:
+            for asset in self.triggered_alerts.index:
+                multiindex_tuples.append((condition, asset))
+        return pd.MultiIndex.from_tuples(multiindex_tuples)
+
+    @validate
+    def _DEPRECATED_default_strategy(self, loop_counter):
+        action = None
+        new_total = self.total * 0.999  # 0.1% fee
         buy_link_threshold = self.strategy_params ['buy_link_threshold']
         sell_link_threshold = self.strategy_params ['sell_link_threshold']
         buy_link_target = self.strategy_params ['buy_link_target']
         sell_link_target = self.strategy_params ['sell_link_target']
-        match percentages.chainlink:
-            case percentages.chainlink if percentages.chainlink < buy_link_threshold:
-                print('buy link', percentages.chainlink, end='')
-                assets.chainlink = new_total * buy_link_target / prices.chainlink
-                assets.bitcoin = new_total * (1 - buy_link_target) / prices.bitcoin
+        link_percentage = self.percentages.chainlink
+        match link_percentage:
+            case link_percentage if link_percentage < buy_link_threshold:
+                print('buy link', link_percentage, end='')
+                self.assets.chainlink = new_total * buy_link_target / self.prices.chainlink
+                self.assets.bitcoin = new_total * (1 - buy_link_target) / self.prices.bitcoin
                 action = TradeAction.BUY
-                print('-->', percentages.chainlink)
-            case percentages.chainlink if sell_link_threshold < percentages.chainlink:
-                print('sell link', percentages.chainlink, end='')
-                assets.chainlink = new_total * sell_link_target / prices.chainlink
-                assets.bitcoin = new_total * (1 - sell_link_target) / prices.bitcoin
+                print('-->', self.percentages.chainlink)
+            case self.percentages.chainlink if sell_link_threshold < self.percentages.chainlink:
+                print('sell link', link_percentage, end='')
+                self.assets.chainlink = new_total * sell_link_target / self.prices.chainlink
+                self.assets.bitcoin = new_total * (1 - sell_link_target) / self.prices.bitcoin
                 action = TradeAction.SELL
-                print('-->', percentages.chainlink)
+                print('-->', self.percentages.chainlink)
 
         return action
 
-    def random_strategy(self, assets, percentages, values, prices, loop_counter):
-        self.strategy_params['buy_link_threshold'] = random.random() / 2
-        self.strategy_params['sell_link_threshold'] = 1 - random.random() / 2
-        self.strategy_params['buy_link_target'] = 1 - random.random() / 2
-        self.strategy_params['sell_link_target'] = random.random() / 2
-        return self.default_strategy(assets, percentages, values, prices, loop_counter)
-
-        
 
 
+class PortfolioBackTest(HistoricalPortfolio, PortfolioMonitor, BackTestStrategyMixin):
+    """HistoricalPortfolio with backtest capabilities.
 
-class PortfolioBackTest(HistoricalPortfolio, BackTestStrategyMixin):
+    Attributes
+    ----------
+
+    strategy : Callable
+        Strategy to be used on backtest. Receives only the `loop_counter` as argument.
+    strategy_params : dict
+        Parameters to be used by the strategy.
+    _cached_first_prices : pd.Series
+        Series with the first prices for each portfolio asset (prices `self.days` ago)
+    _cached_price_normalized_evolution : pd.DataFrame
+        Dataframe with the normalized price evolution of each asset (always starts at 1).
+    """
     def __init__(self, *args,
                  strategy: Callable = None,
                  strategy_params: dict = None,
@@ -214,30 +254,48 @@ class PortfolioBackTest(HistoricalPortfolio, BackTestStrategyMixin):
         self.strategy_params = strategy_params or dict()
 
         self.backtest_values = None
+        self.backtest_actions = None
 
     def run(self):
+        """Run the backtest.
+        """
         self.backtest_values = pd.DataFrame()
         self.backtest_values.name = 'Strategy'
         initial_assets = self.assets.copy()
 
-        strategy_actions = []
-        for loop_counter, (date, prices) in enumerate(self.historical_prices.iterrows()):
-            values = self.assets * prices
-            percentages = values / values.sum()
+        try:
+            strategy_actions = []
+            for loop_counter, (date, prices) in enumerate(self.historical_prices.iterrows()):
+                self.update_prices(prices_df=prices)
 
-            values.name = date
-            self.backtest_values = self.backtest_values.append(values)
-            strategy_actions.append((date, self.strategy(self.assets, percentages, values, prices, loop_counter)))
-        self.assets = initial_assets
-        self.backtest_actions = pd.DataFrame(strategy_actions).set_index(0)[1].astype('bool')
-        self.backtest_actions.name = 'Action performed'
+                values = self.values
+                values.name = date
+                self.backtest_values = self.backtest_values.append(values)
+                self.update_triggered_alerts()
+                strategy_action = self.strategy(loop_counter)  # changes assets
+                strategy_actions.append((date, strategy_action))
+            self.backtest_actions = pd.DataFrame(strategy_actions).set_index(0)[1]
+            self.backtest_actions.name = 'Action performed'
 
-        self.update_prices()
+        finally:
+            self.update_prices()
+            self.assets = initial_assets
+            self.update_triggered_alerts()
+
         return strategy_actions
 
     @property
     def backtest_totals(self):
         return self.backtest_values.sum(axis=1)
+
+    @property
+    def profit(self):
+        chainlink_profit = self.historical_normalized_prices['chainlink'].iloc[-1]
+        bitcoin_profit = self.historical_normalized_prices['bitcoin'].iloc[-1]
+        self_profit = self.backtest_totals.iloc[-1] / self.backtest_totals.iloc[0]
+        return {'chainlink': self_profit / chainlink_profit - 1,
+                'bitcoin': self_profit / bitcoin_profit - 1}
+
 
     def __truediv__(self, other):
         return (
@@ -246,64 +304,75 @@ class PortfolioBackTest(HistoricalPortfolio, BackTestStrategyMixin):
             ) - 1
         )
 
-    def plot_difference(self, other):
+    def plot_profit(self):
         this_strategy = self.backtest_totals
-        this_strategy.name = 'Strategy main'
-        other_strategy = other.backtest_totals
-        other_strategy.name = 'Strategy other'
+        this_strategy.name = 'Strategy'
+        hodl_link = self.historical_normalized_prices.chainlink * self.historical_totals.iloc[0]
+        hodl_bitcoin = self.historical_normalized_prices.bitcoin * self.historical_totals.iloc[0]
+        hodl_link.name = 'HODL LINK'
+        hodl_bitcoin.name = 'HODL BITCOIN'
 
-        performance = self / other * 100
-        better_or_worse = 'better' if performance >= 0 else 'worse'
-        performance_str = f'{performance:.2f}% {better_or_worse}.'
 
-        pd.concat([this_strategy, other_strategy], axis=1).plot()
-        has_changed_index = this_strategy.index[self.backtest_actions]
-        plt.scatter(has_changed_index,
-                    this_strategy[has_changed_index].values,
-                    c='black',
-                    marker='X')
-        # c = ['yellow' if x else 'red' for x in other.backtest_actions]
-        # plt.scatter(other_strategy.index, other_strategy, c=c)
-        this_params_str = '\n'.join([f'{k:<20} {100* v:<5.2f}' for k, v in self.strategy_params.items()])
-        other_params_str = '\n'.join([f'{k:<20} {100* v:<5.2f}' for k, v in other.strategy_params.items()])
-        plt.title(f'This strategy:\n {this_params_str}\nOther strategy: {other_params_str}\n' + performance_str)
+        profit_bitcoin, profit_chainlink = self.profit['bitcoin'], self.profit['chainlink']
+        better_or_worse_chainlink = 'better' if profit_chainlink >= 0 else 'worse'
+        better_or_worse_bitcoin = 'better' if profit_bitcoin >= 0 else 'worse'
+        performance_str = f'{profit_chainlink*100:.2f}% {better_or_worse_chainlink} than link HODL,'
+        performance_str += f'{profit_bitcoin*100:.2f}% {better_or_worse_bitcoin} than bitcoin HODL.'
+
+        pd.concat([this_strategy, hodl_link, hodl_bitcoin], axis=1).plot()
+        has_bought_index = this_strategy.index[self.backtest_actions == TradeAction.BUY]
+        has_sold_index = this_strategy.index[self.backtest_actions == TradeAction.SELL]
+        plt.scatter(has_bought_index,
+                    this_strategy[has_bought_index].values,
+                    c='green',
+                    marker='o', zorder=3)
+        plt.scatter(has_sold_index,
+                    this_strategy[has_sold_index].values,
+                    c='red',
+                    marker='X', zorder=3)
+        this_params_str = '\n'.join([f'{k:<20} {100* v:<5.2f}%' for k, v in self.active_conditions.items()])
+        plt.title(f'This strategy:\n {this_params_str}\n' + performance_str)
         plt.show()
 
-    def test_all_strategies(self, hodl, n):
-        for blth in np.arange(0, 0.50, 0.05):
-            for slth in np.arange(0.5, 1, 0.05):
-                for blta in np.arange(0.5, 1, 0.05):
-                    for slta in np.arange(0, 0.5, 0.05):
-                        self.strategy_params['buy_link_threshold'] = blth
-                        self.strategy_params['sell_link_threshold'] = slth
+    def test_all_strategies(self):
+        with open ('result.csv', 'a') as f:
+            for blth in np.arange(0, 0.50, 0.05):
+                for slth in np.arange(0.5, 1, 0.05):
+                    for blta in np.arange(0.5, 1, 0.05):
+                        for slta in np.arange(0, 0.5, 0.05):
+                            self.strategy_params['buy_link_threshold'] = blth
+                            self.strategy_params['sell_link_threshold'] = slth
 
-                        self.strategy_params['buy_link_target'] = blta
-                        self.strategy_params['sell_link_target'] = slta
-                        self.run()
-                        row = [blth, slth, blta, slta, self.plot_differenceprofit]
-                        with open ('result.csv', 'a') as f:
-                                   f.write(','.join(map(lambda x: str(x), row)) + '\n')
+                            self.strategy_params['buy_link_target'] = blta
+                            self.strategy_params['sell_link_target'] = slta
+                            self.run()
+                            row = [blth, slth, blta, slta, self.profit]
+                            f.write(','.join(map(lambda x: str(x), row)) + '\n')
 
-            # p.plot_difference()
+    def test_strategies_random(self):
+        results_df = pd.DataFrame(columns=set(self.strategy_params.keys()) | {'profit'})
+        while 1:
+            self.randomize_params()
+            self.run()
+            row_dict = self.strategy_params.copy()
+            row_dict.update({'profit': self.profit })
+            results_df = results_df.append(row_dict, ignore_index=True)
+            results_df.to_csv('results.csv')
+
+            # p.plot_profit()
 
 
 
 if __name__ == '__main__':
     # coins_info = get_coins_info()
-    #p = HistoricalPortfolio('main', 'usd')
     #exit()
-    hodl = PortfolioBackTest('temp', 'usd', strategy=None)
-    hodl.update_history(days=365)
-    hodl.strategy = hodl.hodl_strategy
-    hodl.run()
+    p = HistoricalPortfolio('main',
+                         quote='usd')
+
     p = PortfolioBackTest('temp', 'usd', strategy=None)
     p.update_history(days=365)
-    p.strategy = p.random_strategy
-    p.strategy_params['buy_link_threshold'] = 0.55
-    p.strategy_params['sell_link_threshold'] = 0.85
 
     p.strategy_params['buy_link_target'] = 0.7
     p.strategy_params['sell_link_target'] = 0.3
     while 1:
         p.run()
-        p.plot_difference(hodl)
