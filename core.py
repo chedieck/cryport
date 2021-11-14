@@ -1,12 +1,17 @@
 import pandas as pd
 import json
-from constants import CG, PORTFOLIOS_DIR, PortfolioInfoType
-from constants import ConditionType
-pd.options.display.float_format = '{:.8f}'.format
+from constants import (
+    CG,
+    PORTFOLIOS_DIR,
+    PortfolioInfoType,
+    ConditionType,
+)
 from termcolor import colored
 from dataclasses import dataclass
 from typing import List
 
+
+pd.options.display.float_format = '{:.8f}'.format
 
 
 def update_src():
