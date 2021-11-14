@@ -5,10 +5,12 @@ from constants import (
     PORTFOLIOS_DIR,
     PortfolioInfoType,
     ConditionType,
+    AGGREGATE_DUST_THRESHOLD,
 )
 from termcolor import colored
 from dataclasses import dataclass
 from typing import List
+import matplotlib.pyplot as plt
 
 
 pd.options.display.float_format = '{:.8f}'.format
@@ -128,6 +130,19 @@ class Portfolio:
     @property
     def total(self):
         return self.values.sum()
+
+    def pie(self):
+        values = list(self.values[self.percentages >= AGGREGATE_DUST_THRESHOLD].values)
+        labels = list(self.values[self.percentages >= AGGREGATE_DUST_THRESHOLD].index)
+        other = self.values[self.percentages < AGGREGATE_DUST_THRESHOLD]
+        if len(other.index) != 0:
+            values.append(other.sum())
+            labels.append(', '.join(other.index))
+
+        plt.pie(values, labels=labels, autopct='%1.1f%%', pctdistance=0.85, labeldistance=1.05)
+        plt.title(f"Portfolio `{self.name}` total value: {self.total:.4f} {self.quote.upper()}")
+        plt.show()
+
 
 
 @dataclass

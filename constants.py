@@ -7,6 +7,8 @@ PORTFOLIOS_DIR = 'portfolios/'
 CG = CoinGeckoAPI()
 STYLE = ['.-', 'o-', 'v-', '^-', '<-', '>-', '1-', '2-', '3-', '4-', '8-', 's-', 'p-', 'P-', '*-', 'H-', '+-', 'x-', 'X-', 'D-']
 
+AGGREGATE_DUST_THRESHOLD = 0.01  # 1%
+
 class PortfolioInfoType:
     VALUE = 'value'
     PERCENTAGE = 'percentage'
