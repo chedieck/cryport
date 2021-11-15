@@ -134,15 +134,18 @@ class HistoricalPortfolio(Portfolio):
     def _markevery(self):
         return len(self.historical_normalized_prices) // 16
 
-    def plot_price_evolution(self, normalized=True, show=True):
+    def plot_price_evolution(self, normalized=True, show=True, exclude_assets=None):
+        exclude_assets = exclude_assets or []
         if normalized:
-            self.historical_normalized_prices.plot(style=STYLE,
-                                                   markevery=self._markevery)
+            to_plot_df = self.historical_normalized_prices.drop(exclude_assets, axis=1)
         else:
-            self.historical_prices.plot(style=STYLE,
-                                        markevery=self._markevery)
+            to_plot_df = self.historical_prices.drop(exclude_assets, axis=1)
+
+        to_plot_df.plot(style=STYLE,
+                        markevery=self._markevery)
         plt.title(f'Price evolution of portfolio assets on the last {self.days} days.')
-        plt.axhline(y=1, color='black', linestyle='--', label='CONSTANT')
+        if normalized:
+            plt.axhline(y=1, color='black', linestyle='--', label='CONSTANT')
         if show:
             plt.show()
 
