@@ -1,0 +1,7 @@
+__pycache__/
+portfolios/*
+pyenv/
+julia/
+telegram_bot.py
+oldresult.csv
+results.csv
