@@ -142,13 +142,13 @@ class AssetCondition:
         value_str = f': {self.value}' if self.value is not None else ''
         return f'{self.asset}-{self.condition}{value_str}'
 
-    def get_info_type(self):
-        """0 if lower boundary, 1 if upper.
-        """
+    def get_info_type(self) -> PortfolioInfoType:
         return self.condition.rsplit('_')[0]
 
-    def get_side(self):
-        """0 if lower boundary, 1 if upper.
+    def get_side(self) -> str:
+        """
+        Return
+        `'min'` if lower boundary, `'max'` if upper.
         """
         return self.condition.rsplit('_')[-1]
 
@@ -167,6 +167,7 @@ class PortfolioMonitor(Portfolio):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # create empty condition dataframe
         none_list = [None] * len(self.assets)
         aux_dict = {
             condition_type: none_list for condition_type in ConditionType.ALL
