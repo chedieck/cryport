@@ -301,17 +301,258 @@ class PortfolioMonitor(Portfolio):
         return display
 
 
+class PortfolioEqualizer(PortfolioMonitor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        name = args[0]
+        self._cached_mutable_goals_percentages = None
+        self._cached_defined_percentage = None
+        self._cached_total_defined_value = None
 
-if __name__ == '__main__':
-    p = PortfolioMonitor('example',
-                         quote='usd')
+        try:
+            self.raw_goals = pd.read_csv(f'{PORTFOLIOS_DIR}{name}.eq.csv',
+                                         index_col=0).goal
+            self.goals = self._parse_goals()
+            self.goals.name = 'Goals'
+        except FileNotFoundError:
+            self.goals = None
+
+    def delete_cache(self):
+        """Reset cached values to `None`.
+        """
+        super().delete_cache()
+        self._cached_mutable_goals_percentages = None
+        self._cached_defined_percentage = None
+        self._cached_total_defined_value = None
+
+    @property
+    def mutable_goals_percentages(self) -> pd.Series:
+        """The percentages of the assets that were marked as mutable (lines start with '%').
+        This should always sum up to 100.
+        """
+        if self._cached_mutable_goals_percentages is None:
+            self._cached_mutable_goals_percentages = self.raw_goals[
+                self.raw_goals.str.startswith('%')
+            ].apply(
+                lambda x: float(x[1:]) if x != '%-' else self.each_remainder_percentage
+            )
+        return self._cached_mutable_goals_percentages
+
+    @property
+    def mutable_goals(self) -> pd.Series:
+        """Same as `self.assets`, but the goals for each asset.
+        """
+        return self.goals[self.mutable_goals_percentages.index]
+
+    @property
+    def mutable_total(self) -> float:
+        """Return the total value of the assets that were marked as mutable (lines start with '%')
+        """
+        return self.values[self.mutable_goals_percentages.index].sum()
+
+    @property
+    def defined_percentage(self):
+        """Return the total percentage that was explicitally defined ('%-' rows not included)
+        """
+        if self._cached_defined_percentage is None:
+            self._cached_defined_percentage = sum([
+                float(x[1:]) for x in self.raw_goals if (
+                    x.startswith('%') and not x.startswith('%-')
+                )
+            ])
+        return self._cached_defined_percentage
+
+    @property
+    def defined_total(self):
+        if self._cached_total_defined_value is None:
+            self._cached_total_defined_value = self.defined_percentage * self.mutable_total
+        return self._cached_total_defined_value
+
+    @property
+    def each_remainder_percentage(self):
+        if self.defined_percentage > 100:
+            raise ValueError('Total percentage on equalized CSV exceeds 100%.')
+        return (100 - self.defined_percentage) / self.raw_goals[self.raw_goals == '%-'].count()
+
+    @property
+    def diff(self):
+        diff = self.goals - self.assets
+        return diff[diff != 0]
+
+    @property
+    def has_goal(self):
+        return self.goals is not None
+
+    def get_asset_amount_from_percentage(self, percentage: float, asset: str):
+        return self.mutable_total * percentage / self.prices[asset]
+
+    def _parse_goals(self):
+        def parse_single_goal(goal: pd.Series):
+            goal_str = goal.goal
+            if goal_str.startswith('%'):
+                if goal_str == '%-':
+                    goal_str = f'%{self.each_remainder_percentage}'
+                percentage = float(goal_str[1:]) / 100
+                return self.get_asset_amount_from_percentage(percentage, goal.name)
+            elif goal_str.startswith('#'):
+                return float(goal_str[1:])
+
+        return pd.DataFrame(self.raw_goals).apply(
+            parse_single_goal, axis=1
+        )
+
+    def goals_pie(self):
+        goals = list(self.mutable_goals_percentages[self.mutable_goals_percentages >= AGGREGATE_DUST_THRESHOLD].values)
+        labels = list(self.mutable_goals_percentages[self.mutable_goals_percentages >= AGGREGATE_DUST_THRESHOLD].index)
+        other = self.mutable_goals_percentages[self.mutable_goals_percentages < AGGREGATE_DUST_THRESHOLD]
+        if len(other.index) != 0:
+            goals.append(other.sum())
+            labels.append(', '.join(other.index))
+
+        plt.pie(goals, labels=labels, autopct='%1.1f%%', pctdistance=0.85, labeldistance=1.05)
+        plt.title(f"Portfolio `{self.name}` mutable total value: {self.mutable_total:.4f} {self.quote.upper()}")
+        plt.show()
+
+
+class HistoricalPortfolio(Portfolio):
+    """Portfolio containing historical data for the assets.
+
+    Attributes
+    ----------
+
+    days : pd.DataFrame
+        DataFrame with alert conditions.
+    _cached_first_prices : pd.Series
+        Series with the first prices for each portfolio asset (prices `self.days` ago)
+    _cached_price_normalized_evolution : pd.DataFrame
+        Dataframe with the normalized price evolution of each asset (always starts at 1).
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.days = None
+        self._cached_first_prices = None
+        self._cached_price_normalized_evolution = None
+
+    def update_history(self, days=30):
+        """Get historical data of each portfolio asset.
+
+        Does not support custom granularity, as this is the CoinGecko API behavior.
+        Granularity is determined automatic, as mentioned by CoinGecko API docs:
+            days = 1         => 5 minute interval data
+            1 < days <= days => hourly data
+            days > 90        => daily data (00:00 UTC)
+        """
+        self.days = days
+        results_dict = {}
+        first_values_dict = {}
+        for coin_id in self.assets.index:
+            try:
+                historical_data = CG.get_coin_market_chart_by_id(coin_id,
+                                                                 self.quote,
+                                                                 days=days)
+            except ValueError as e:
+                print('coin_id falhou', coin_id)
+                raise e
+            first_value = historical_data['prices'][0][1]  # used to normalize data
+            first_values_dict[coin_id] = first_value
+            results_dict[coin_id] = list(map(
+                lambda xy: (xy[0], xy[1] / first_value),
+                historical_data['prices']
+            ))
+
+        # this refers to the default coingecko API behavior
+        match days:
+            case 1:
+                window_size = relativedelta(minutes=5)
+            case days if 1 < days <= 90:
+                window_size = relativedelta(hours=1)
+            case _:
+                window_size = relativedelta(days=1)
+
+        performance_df = create_windowed_dataframe(results_dict,
+                                                   window_size=window_size).dropna()
+        self._cached_first_prices = pd.Series(first_values_dict)
+        self._cached_price_normalized_evolution = performance_df
+
+    @property
+    def historical_normalized_prices(self):
+        if self._cached_first_prices is None:
+            self.update_history()
+        return self._cached_price_normalized_evolution
+
+    @property
+    def historical_prices(self):
+        return self.historical_normalized_prices.mul(self._cached_first_prices, axis=1)
+
+    @property
+    def historical_values(self):
+        return self.historical_prices.mul(self.assets)
+
+    @property
+    def historical_percentages(self):
+        return self.historical_values.div(self.historical_values.sum(axis=1), axis=0)
+
+    @property
+    def historical_totals(self):
+        return self.historical_values.sum(axis=1)
+
+    @property
+    def _markevery(self):
+        return len(self.historical_normalized_prices) // 16
+
+    def plot_price_evolution(self, normalized=True, show=True, exclude_assets=None):
+        exclude_assets = exclude_assets or []
+        if normalized:
+            to_plot_df = self.historical_normalized_prices.drop(exclude_assets, axis=1)
+        else:
+            to_plot_df = self.historical_prices.drop(exclude_assets, axis=1)
+
+        to_plot_df.plot(style=STYLE,
+                        markevery=self._markevery)
+        plt.title(f'Price evolution of portfolio assets on the last {self.days} days.')
+        if normalized:
+            plt.axhline(y=1, color='black', linestyle='--', label='CONSTANT')
+        if show:
+            plt.show()
+
+    def plot_percentages_evolution(self, show=True):
+        self.historical_percentages.plot(style=STYLE,
+                                         markevery=self._markevery)
+        plt.title(f'(% of portfolio) evolution of assets on the last {self.days} days.')
+        if show:
+            plt.show()
+
+    def plot_total_evolution(self, show=True):
+        self.historical_totals.plot()
+        plt.title(f'Total value of portfolio (in {self.quote.upper()}) evolution on the last {self.days} days.')
+        if show:
+            plt.show()
+
+
+"""
+class Pf(PortfolioMonitor, HistoricalPortfolio):
+    def __init__(self):
+        super(PortfolioMonitor).__init__()
+        super(HistoricalPortfolio).__init__()
+"""
+Pf = type('Pf', (PortfolioEqualizer, HistoricalPortfolio), dict(pf='pf'))
+
+
+def main(pf):
     # will alert if:
-    p.add_condition_list([
+    pf.add_condition_list([
         AssetCondition(asset='chainlink', condition=ConditionType.VALUE_MAX, value=6000),  # total link value on portfolio > 6000 USD
         AssetCondition(asset='hathor', condition=ConditionType.PERCENTAGE_MAX, value=0.1),  # hathor occupies > 10% of portfolio
-        AssetCondition(asset='bitcoin', condition=ConditionType.PRICE_MAX, value=70000),  # bitcoin price > 70000 USD
-        AssetCondition(asset='bitcoin', condition=ConditionType.PRICE_MIN, value=60000),  # bitcoin price < 60000 USD
+        AssetCondition(asset='bitcoin', condition=ConditionType.PRICE_MAX, value=30000),  # bitcoin price > 70000 USD
+        AssetCondition(asset='bitcoin', condition=ConditionType.PRICE_MIN, value=20000),  # bitcoin price < 60000 USD
     ])
 
-    p.update_triggered_conditions()
-    print(p)
+    pf.update_triggered_conditions()
+    print(pf)
+
+
+if __name__ == '__main__':
+    e = Pf('example',
+           quote='usd')
+    main(e)
