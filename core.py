@@ -2,15 +2,19 @@ import pandas as pd
 import json
 from constants import (
     CG,
+    USD_BRL,
     PORTFOLIOS_DIR,
     PortfolioInfoType,
     ConditionType,
     AGGREGATE_DUST_THRESHOLD,
+    STYLE,
 )
 from termcolor import colored
 from dataclasses import dataclass
 from typing import List
 import matplotlib.pyplot as plt
+from dateutil.relativedelta import relativedelta
+from scripts import create_windowed_dataframe
 
 
 pd.options.display.float_format = '{:.8f}'.format
@@ -46,7 +50,7 @@ class Portfolio:
 
     def __init__(self, name: str, quote='usd'):
         """Class constructor.
-        
+
         Parameters
         ----------
         name : str
@@ -128,6 +132,10 @@ class Portfolio:
         self.quote = quote
 
     @property
+    def total_brl(self):
+        return self.values.sum() * USD_BRL
+
+    @property
     def total(self):
         return self.values.sum()
 
@@ -144,7 +152,6 @@ class Portfolio:
         plt.show()
 
 
-
 @dataclass
 class AssetCondition:
     asset: str
@@ -155,9 +162,10 @@ class AssetCondition:
         value_str = f': {self.value}' if self.value is not None else ''
         return f'{self.asset}-{self.condition}{value_str}'
 
-    def get_info_type(self):
-        """0 if lower boundary, 1 if upper.
-        """
+    def __repr__(self):
+        return f"<AssetCondition: {self.__str__()}>"
+
+    def get_info_type(self) -> PortfolioInfoType:
         return self.condition.rsplit('_')[0]
 
     def get_side(self):
@@ -204,7 +212,7 @@ class PortfolioMonitor(Portfolio):
         for asset_condition in asset_condition_list:
             self.conditions.at[asset_condition.asset,
                                asset_condition.condition] = asset_condition.value
-       
+
     def _get_asset_state(self, asset, info_type):
         """Return the price, value or percentage of asset on portfolio
 
@@ -231,7 +239,7 @@ class PortfolioMonitor(Portfolio):
         for (asset, condition), value in zip(self.conditions.stack().index,
                                              self.conditions.stack().values):
             return_list.append(
-                AssetCondition(asset=asset,condition=condition, value=value)
+                AssetCondition(asset=asset, condition=condition, value=value)
             )
         return return_list
 
@@ -241,7 +249,7 @@ class PortfolioMonitor(Portfolio):
         for (asset, condition), value in zip(self.conditions[self.triggered_conditions].stack().index,
                                              self.conditions[self.triggered_conditions].stack().values):
             return_list.append(
-                AssetCondition(asset=asset,condition=condition, value=value)
+                AssetCondition(asset=asset, condition=condition, value=value)
             )
         return return_list
 
@@ -258,7 +266,7 @@ class PortfolioMonitor(Portfolio):
         return (
             self.conditions.loc[asset, f'{info_type}_min'],
             self.conditions.loc[asset, f'{info_type}_max']
-        ) 
+        )
 
     def update_triggered_conditions(self):
         """Trigger conditions that had their conditions met.

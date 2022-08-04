@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 
 PORTFOLIOS_DIR = 'portfolios/'
 CG = CoinGeckoAPI()
+USD_BRL = CG.get_price('usd', 'brl')['usd']['brl']
 STYLE = ['.-', 'o-', 'v-', '^-', '<-', '>-', '1-', '2-', '3-', '4-', '8-', 's-', 'p-', 'P-', '*-', 'H-', '+-', 'x-', 'X-', 'D-']
 
 AGGREGATE_DUST_THRESHOLD = 0.01  # 1%
