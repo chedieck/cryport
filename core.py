@@ -410,7 +410,7 @@ class PortfolioEqualizer(PortfolioMonitor):
             labels.append(', '.join(other.index))
 
         plt.pie(goals, labels=labels, autopct='%1.1f%%', pctdistance=0.85, labeldistance=1.05)
-        plt.title(f"Portfolio `{self.name}` mutable total value: {self.mutable_total:.4f} {self.quote.upper()}")
+        plt.title(f"Portfolio `{self.name}` mutable goals: {self.mutable_total:.4f} {self.quote.upper()}")
         plt.show()
 
 

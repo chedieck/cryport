@@ -1,4 +1,7 @@
 coin_id,amount
-bitcoin,0.010192
-chainlink,500
-hathor,2000
+bitcoin,0.1
+ecash,0
+hathor,50
+chainlink,123
+ethereum,1
+render-token,0

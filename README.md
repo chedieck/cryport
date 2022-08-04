@@ -88,9 +88,26 @@ hathor         10.00000000
 ethereum       10.00000000
 render-token   10.00000000
 >>>example.goals
-bitcoin               0.08555589
-ecash          17684167.20183486
-hathor             2806.41807831
+bitcoin               0.08563564
+ecash          17656468.17765568
+hathor             2801.37203693
 chainlink           123.00000000
-ethereum              0.24165967
-render-token        574.18436194
+ethereum              0.24134415
+render-token        572.33114316
+```
+
+Another cool features, using the same example from above:
+
+```
+>>>example.diff
+coin_id
+bitcoin              -0.01436436
+ecash          17656468.17765568
+hathor             2751.37203693
+ethereum             -0.75865585
+render-token        572.33114316
+```
+
+```
+>>>example.goals_pie()
+```
